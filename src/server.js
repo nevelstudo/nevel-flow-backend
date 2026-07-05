@@ -1,7 +1,15 @@
 const fastify = require('fastify')({ logger: true });
 
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT || 3000);
 const HOST = '0.0.0.0';
+
+fastify.get('/', async () => {
+  return {
+    ok: true,
+    app: 'Nevel Flow AI',
+    message: 'Root route is running'
+  };
+});
 
 fastify.get('/health', async () => {
   return {
@@ -14,7 +22,7 @@ fastify.get('/health', async () => {
 const start = async () => {
   try {
     await fastify.listen({ port: PORT, host: HOST });
-    fastify.log.info(`Server running on port ${PORT}`);
+    fastify.log.info(`Nevel Flow AI running on ${HOST}:${PORT}`);
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
