@@ -1,6 +1,10 @@
 const fastify = require('fastify')({ logger: true });
 const { pool, initDb } = require('./db');
-const { appendUserRow } = require('./google');
+const {
+  appendUserRow,
+  updateUserSheetIdByPhone,
+  copyTemplateSpreadsheet
+} = require('./google');
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = '0.0.0.0';
@@ -60,7 +64,7 @@ fastify.get('/sheet-test', async () => {
   await appendUserRow([
     '6281234567890',
     'User Test',
-    'SHEET_TEST_ID',
+    '',
     toDateOnly(now),
     toDateOnly(expiredAt),
     'aktif',
@@ -73,6 +77,16 @@ fastify.get('/sheet-test', async () => {
     app: 'Nevel Flow AI',
     sheet: 'connected',
     message: 'Test row berhasil ditambahkan ke tab Users'
+  };
+});
+
+fastify.get('/template-test', async () => {
+  const copied = await copyTemplateSpreadsheet('Test User');
+
+  return {
+    ok: true,
+    app: 'Nevel Flow AI',
+    copied
   };
 });
 
@@ -146,7 +160,7 @@ fastify.post('/webhooks/lynk', async (request, reply) => {
 
   const existing = await pool.query(
     `
-      select id, wa_number, expired_at, renew_count, registered_at
+      select id, wa_number, expired_at, renew_count, registered_at, spreadsheet_id
       from subscribers
       where wa_number = $1
       limit 1
@@ -172,11 +186,21 @@ fastify.post('/webhooks/lynk', async (request, reply) => {
     );
 
     const subscriber = created.rows[0];
+    const copiedSheet = await copyTemplateSpreadsheet(fullName);
+
+    await pool.query(
+      `
+        update subscribers
+        set spreadsheet_id = $2, updated_at = now()
+        where id = $1
+      `,
+      [subscriber.id, copiedSheet.spreadsheetId]
+    );
 
     await appendUserRow([
       waNumber,
       fullName,
-      '',
+      copiedSheet.spreadsheetId,
       toDateOnly(subscriber.registered_at),
       toDateOnly(subscriber.expired_at),
       'aktif',
@@ -187,7 +211,11 @@ fastify.post('/webhooks/lynk', async (request, reply) => {
     return {
       ok: true,
       action: 'created',
-      subscriber
+      subscriber: {
+        ...subscriber,
+        spreadsheet_id: copiedSheet.spreadsheetId,
+        spreadsheet_name: copiedSheet.spreadsheetName
+      }
     };
   }
 
@@ -202,17 +230,35 @@ fastify.post('/webhooks/lynk', async (request, reply) => {
         renew_count = renew_count + 1,
         updated_at = now()
       where wa_number = $1
-      returning id, wa_number, expired_at, renew_count, registered_at
+      returning id, wa_number, expired_at, renew_count, registered_at, spreadsheet_id
     `,
     [waNumber, fullName, email, productName]
   );
 
   const subscriber = renewed.rows[0];
 
+  if (!subscriber.spreadsheet_id) {
+    const copiedSheet = await copyTemplateSpreadsheet(fullName);
+
+    await pool.query(
+      `
+        update subscribers
+        set spreadsheet_id = $2, updated_at = now()
+        where id = $1
+      `,
+      [subscriber.id, copiedSheet.spreadsheetId]
+    );
+
+    await updateUserSheetIdByPhone(waNumber, copiedSheet.spreadsheetId);
+
+    subscriber.spreadsheet_id = copiedSheet.spreadsheetId;
+    subscriber.spreadsheet_name = copiedSheet.spreadsheetName;
+  }
+
   await appendUserRow([
     waNumber,
     fullName,
-    '',
+    subscriber.spreadsheet_id || '',
     toDateOnly(subscriber.registered_at),
     toDateOnly(subscriber.expired_at),
     'aktif',
