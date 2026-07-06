@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "fastify": "^5.0.0",
+    "googleapis": "^144.0.0",
     "pg": "^8.12.0"
   }
 }
