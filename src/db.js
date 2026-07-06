@@ -20,6 +20,7 @@ async function initDb() {
       full_name varchar(255) not null,
       email varchar(255),
       product_name varchar(255),
+      spreadsheet_id varchar(255),
       subscription_status varchar(50) not null default 'active',
       registered_at timestamptz not null default now(),
       expired_at timestamptz not null,
@@ -27,6 +28,11 @@ async function initDb() {
       created_at timestamptz not null default now(),
       updated_at timestamptz not null default now()
     );
+  `);
+
+  await pool.query(`
+    alter table subscribers
+    add column if not exists spreadsheet_id varchar(255);
   `);
 
   await pool.query(`
