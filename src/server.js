@@ -1,5 +1,6 @@
 const fastify = require('fastify')({ logger: true });
 const { pool, initDb } = require('./db');
+const { appendUserRow } = require('./google');
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = '0.0.0.0';
@@ -20,6 +21,10 @@ function isPaidStatus(status = '') {
   return ['paid', 'success', 'completed', 'settlement'].some((item) =>
     lower.includes(item)
   );
+}
+
+function toDateOnly(value) {
+  return new Date(value).toISOString().slice(0, 10);
 }
 
 fastify.get('/', async () => {
@@ -45,6 +50,29 @@ fastify.get('/db-check', async () => {
     app: 'Nevel Flow AI',
     database: 'connected',
     now: result.rows[0].now
+  };
+});
+
+fastify.get('/sheet-test', async () => {
+  const now = new Date();
+  const expiredAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+  await appendUserRow([
+    '6281234567890',
+    'User Test',
+    'SHEET_TEST_ID',
+    toDateOnly(now),
+    toDateOnly(expiredAt),
+    'aktif',
+    1,
+    false
+  ]);
+
+  return {
+    ok: true,
+    app: 'Nevel Flow AI',
+    sheet: 'connected',
+    message: 'Test row berhasil ditambahkan ke tab Users'
   };
 });
 
@@ -118,7 +146,7 @@ fastify.post('/webhooks/lynk', async (request, reply) => {
 
   const existing = await pool.query(
     `
-      select id, wa_number, expired_at, renew_count
+      select id, wa_number, expired_at, renew_count, registered_at
       from subscribers
       where wa_number = $1
       limit 1
@@ -138,15 +166,28 @@ fastify.post('/webhooks/lynk', async (request, reply) => {
           expired_at
         )
         values ($1, $2, $3, $4, 'active', now() + interval '30 days')
-        returning id, wa_number, expired_at, renew_count
+        returning id, wa_number, expired_at, renew_count, registered_at
       `,
       [waNumber, fullName, email, productName]
     );
 
+    const subscriber = created.rows[0];
+
+    await appendUserRow([
+      waNumber,
+      fullName,
+      '',
+      toDateOnly(subscriber.registered_at),
+      toDateOnly(subscriber.expired_at),
+      'aktif',
+      1,
+      false
+    ]);
+
     return {
       ok: true,
       action: 'created',
-      subscriber: created.rows[0]
+      subscriber
     };
   }
 
@@ -161,15 +202,28 @@ fastify.post('/webhooks/lynk', async (request, reply) => {
         renew_count = renew_count + 1,
         updated_at = now()
       where wa_number = $1
-      returning id, wa_number, expired_at, renew_count
+      returning id, wa_number, expired_at, renew_count, registered_at
     `,
     [waNumber, fullName, email, productName]
   );
 
+  const subscriber = renewed.rows[0];
+
+  await appendUserRow([
+    waNumber,
+    fullName,
+    '',
+    toDateOnly(subscriber.registered_at),
+    toDateOnly(subscriber.expired_at),
+    'aktif',
+    1,
+    false
+  ]);
+
   return {
     ok: true,
     action: 'renewed',
-    subscriber: renewed.rows[0]
+    subscriber
   };
 });
 
